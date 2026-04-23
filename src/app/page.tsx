@@ -1,65 +1,144 @@
 import Image from "next/image";
+import Link from "next/link";
+import { storefront, formatMoney } from "@/lib/shop/client";
 
-export default function Home() {
+type HomeData = {
+  shop: { name: string; description: string };
+  collections: {
+    nodes: {
+      handle: string;
+      title: string;
+      description: string;
+      image: { url: string; altText: string | null } | null;
+    }[];
+  };
+  products: {
+    nodes: {
+      handle: string;
+      title: string;
+      featuredImage: { url: string; altText: string | null } | null;
+      priceRange: {
+        minVariantPrice: { amount: string; currencyCode: string };
+      };
+    }[];
+  };
+};
+
+const HOME_QUERY = /* GraphQL */ `
+  {
+    shop {
+      name
+      description
+    }
+    collections(first: 4, sortKey: TITLE) {
+      nodes {
+        handle
+        title
+        description
+        image {
+          url
+          altText
+        }
+      }
+    }
+    products(first: 8, sortKey: TITLE) {
+      nodes {
+        handle
+        title
+        featuredImage {
+          url
+          altText
+        }
+        priceRange {
+          minVariantPrice {
+            amount
+            currencyCode
+          }
+        }
+      }
+    }
+  }
+`;
+
+export default async function Home() {
+  const data = await storefront<HomeData>(HOME_QUERY);
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="space-y-16">
+      <section>
+        <h1 className="text-4xl font-semibold tracking-tight">
+          {data.shop.name}
+        </h1>
+        <p className="mt-3 max-w-2xl text-zinc-600 dark:text-zinc-400">
+          {data.shop.description}
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-xl font-semibold tracking-tight mb-6">Collections</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {data.collections.nodes.map((c) => (
+            <Link
+              key={c.handle}
+              href={`/collections/${c.handle}`}
+              className="group block"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              <div className="relative aspect-[4/3] overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-900">
+                {c.image ? (
+                  <Image
+                    src={c.image.url}
+                    alt={c.image.altText ?? c.title}
+                    fill
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                    className="object-cover transition-transform group-hover:scale-105"
+                  />
+                ) : null}
+              </div>
+              <div className="mt-3">
+                <p className="font-medium">{c.title}</p>
+                <p className="text-sm text-zinc-500 line-clamp-1">
+                  {c.description}
+                </p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-xl font-semibold tracking-tight mb-6">
+          Featured products
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-8">
+          {data.products.nodes.map((p) => (
+            <Link
+              key={p.handle}
+              href={`/products/${p.handle}`}
+              className="group block"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              <div className="relative aspect-square overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-900">
+                {p.featuredImage ? (
+                  <Image
+                    src={p.featuredImage.url}
+                    alt={p.featuredImage.altText ?? p.title}
+                    fill
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+                    className="object-cover transition-transform group-hover:scale-105"
+                  />
+                ) : null}
+              </div>
+              <div className="mt-2 flex items-baseline justify-between gap-2">
+                <p className="text-sm font-medium truncate">{p.title}</p>
+                <p className="text-sm text-zinc-500 tabular-nums">
+                  {formatMoney(
+                    p.priceRange.minVariantPrice.amount,
+                    p.priceRange.minVariantPrice.currencyCode,
+                  )}
+                </p>
+              </div>
+            </Link>
+          ))}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </section>
     </div>
   );
 }
