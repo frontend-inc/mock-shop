@@ -1,13 +1,10 @@
 import type { NextConfig } from "next";
 
-// All 10 storefront slugs. Kept inline (rather than imported) so this file
-// stays a plain config that next-config can statically analyse.
 const THEME_SLUGS =
   "maison|pulse|ferment|pantry|tread|bloom|hearth|roast|frame|trail";
 
-// Subdomain hosts we accept for theme routing. mockshop.dev is the public
-// pattern; localhost is for local dev (browsers resolve *.localhost to
-// 127.0.0.1 with no /etc/hosts changes).
+// mockshop.dev is the public domain; *.localhost is for local dev (browsers
+// resolve it to 127.0.0.1 with no /etc/hosts changes).
 const THEME_HOST = `(?<theme>${THEME_SLUGS})\\.(?:mockshop\\.dev|localhost(?::\\d+)?)`;
 
 const nextConfig: NextConfig = {
@@ -22,35 +19,38 @@ const nextConfig: NextConfig = {
     ],
   },
   async rewrites() {
-    return [
-      // Shopify Storefront API canonical path → internal yoga handler.
-      // Any API version segment is accepted; the .json suffix is optional.
-      {
-        source: "/api/:version/graphql.json",
-        has: [{ type: "host", value: THEME_HOST }],
-        destination: "/api/:theme/graphql",
-      },
-      {
-        source: "/api/:version/graphql",
-        has: [{ type: "host", value: THEME_HOST }],
-        destination: "/api/:theme/graphql",
-      },
+    return {
+      // beforeFiles runs before filesystem routing, so a request to `/` on a
+      // theme subdomain doesn't get caught by app/page.tsx (the picker).
+      beforeFiles: [
+        // Shopify Storefront canonical path (and the .json-less variant) →
+        // fixed handler that resolves the theme from the Host header.
+        {
+          source: "/api/:version/graphql.json",
+          has: [{ type: "host", value: THEME_HOST }],
+          destination: "/api/_storefront",
+        },
+        {
+          source: "/api/:version/graphql",
+          has: [{ type: "host", value: THEME_HOST }],
+          destination: "/api/_storefront",
+        },
 
-      // Storefront pages: the subdomain shop's `/...` becomes `/:theme/...`
-      // internally so the existing /[theme] route tree handles rendering.
-      {
-        source: "/",
-        has: [{ type: "host", value: THEME_HOST }],
-        destination: "/:theme",
-      },
-      {
-        source: "/:path*",
-        has: [{ type: "host", value: THEME_HOST }],
-        // Don't double-rewrite the storefront's own internal /api/<theme>/...
-        missing: [{ type: "header", key: "x-skip-theme-rewrite" }],
-        destination: "/:theme/:path*",
-      },
-    ];
+        // Storefront pages: subdomain `/...` → internal `/<theme>/...`.
+        {
+          source: "/",
+          has: [{ type: "host", value: THEME_HOST }],
+          destination: "/:theme",
+        },
+        {
+          source: "/:path*",
+          has: [{ type: "host", value: THEME_HOST }],
+          destination: "/:theme/:path*",
+        },
+      ],
+      afterFiles: [],
+      fallback: [],
+    };
   },
 };
 
