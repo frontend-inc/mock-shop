@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { storefront, formatMoney } from "@/lib/shop/client";
+import { isThemeSlug } from "@/lib/shop/themes";
 
 type CollectionData = {
   collection: {
@@ -55,10 +56,11 @@ const QUERY = /* GraphQL */ `
 export default async function CollectionPage({
   params,
 }: {
-  params: Promise<{ handle: string }>;
+  params: Promise<{ theme: string; handle: string }>;
 }) {
-  const { handle } = await params;
-  const data = await storefront<CollectionData>(QUERY, { handle });
+  const { theme, handle } = await params;
+  if (!isThemeSlug(theme)) notFound();
+  const data = await storefront<CollectionData>(theme, QUERY, { handle });
   if (!data.collection) notFound();
   const c = data.collection;
 
@@ -96,7 +98,7 @@ export default async function CollectionPage({
           {c.products.nodes.map((p) => (
             <Link
               key={p.handle}
-              href={`/products/${p.handle}`}
+              href={`/${theme}/products/${p.handle}`}
               className="group block"
             >
               <div className="relative aspect-square overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-900">

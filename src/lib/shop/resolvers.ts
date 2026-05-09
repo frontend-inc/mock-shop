@@ -1,27 +1,19 @@
 import {
-  carts,
   cartTotal,
-  collectionByHandle,
-  collections,
-  getProduct,
-  getProductOfVariant,
-  getVariant,
-  images,
   newCartId,
   newLineId,
   nowIso,
   priceRange,
-  productByHandle,
-  productOptions,
-  products,
-  variants,
   type Cart,
   type CartLine,
   type Collection,
   type Image,
   type Product,
   type ProductVariant,
-} from "./data";
+  type ShopStore,
+} from "./store";
+
+export type Ctx = { store: ShopStore };
 
 type Connection<T> = {
   edges: { node: T; cursor: string }[];
@@ -56,6 +48,7 @@ function toConnection<T extends { id: string }>(
 }
 
 function sortProducts(
+  store: ShopStore,
   list: Product[],
   sortKey?: string | null,
   reverse?: boolean | null,
@@ -68,7 +61,8 @@ function sortProducts(
     case "PRICE":
       out.sort(
         (a, b) =>
-          Number(priceRange(a).min.amount) - Number(priceRange(b).min.amount),
+          Number(priceRange(store, a).min.amount) -
+          Number(priceRange(store, b).min.amount),
       );
       break;
     case "CREATED_AT":
@@ -111,8 +105,6 @@ function sortCollections(
 
 function searchProducts(list: Product[], query?: string | null): Product[] {
   if (!query) return list;
-  // Very loose support for the Storefront query DSL: tag:foo, vendor:foo,
-  // product_type:foo, otherwise treat as a substring match on title/desc.
   const tokens = query.match(/("[^"]+"|\S+)/g) ?? [];
   return list.filter((p) =>
     tokens.every((raw) => {
@@ -134,24 +126,28 @@ function searchProducts(list: Product[], query?: string | null): Product[] {
 
 export const resolvers = {
   Query: {
-    shop: () => ({
-      name: "Mock Shop",
-      description:
-        "An in-memory mock storefront that speaks the Shopify Storefront API.",
+    shop: (_: unknown, __: unknown, ctx: Ctx) => ({
+      name: ctx.store.meta.name,
+      description: ctx.store.meta.description,
       primaryDomain: {
-        host: "mock-shop.local",
-        url: "https://mock-shop.local",
+        host: `${ctx.store.slug}.mock-shop.local`,
+        url: `https://${ctx.store.slug}.mock-shop.local`,
       },
       paymentSettings: { currencyCode: "USD", countryCode: "US" },
     }),
-    product: (_: unknown, args: { id?: string; handle?: string }) => {
+    product: (
+      _: unknown,
+      args: { id?: string; handle?: string },
+      ctx: Ctx,
+    ) => {
+      const { products, productByHandle } = ctx.store;
       if (args.id) return products[args.id] ?? null;
       if (args.handle)
         return products[productByHandle[args.handle] ?? ""] ?? null;
       return null;
     },
-    productByHandle: (_: unknown, args: { handle: string }) =>
-      products[productByHandle[args.handle] ?? ""] ?? null,
+    productByHandle: (_: unknown, args: { handle: string }, ctx: Ctx) =>
+      ctx.store.products[ctx.store.productByHandle[args.handle] ?? ""] ?? null,
     products: (
       _: unknown,
       args: {
@@ -160,40 +156,51 @@ export const resolvers = {
         reverse?: boolean;
         query?: string;
       },
+      ctx: Ctx,
     ) => {
       const all = sortProducts(
-        searchProducts(Object.values(products), args.query),
+        ctx.store,
+        searchProducts(Object.values(ctx.store.products), args.query),
         args.sortKey,
         args.reverse,
       );
       return toConnection(all, args.first);
     },
-    collection: (_: unknown, args: { id?: string; handle?: string }) => {
+    collection: (
+      _: unknown,
+      args: { id?: string; handle?: string },
+      ctx: Ctx,
+    ) => {
+      const { collections, collectionByHandle } = ctx.store;
       if (args.id) return collections[args.id] ?? null;
       if (args.handle)
         return collections[collectionByHandle[args.handle] ?? ""] ?? null;
       return null;
     },
-    collectionByHandle: (_: unknown, args: { handle: string }) =>
-      collections[collectionByHandle[args.handle] ?? ""] ?? null,
+    collectionByHandle: (_: unknown, args: { handle: string }, ctx: Ctx) =>
+      ctx.store.collections[ctx.store.collectionByHandle[args.handle] ?? ""] ??
+      null,
     collections: (
       _: unknown,
       args: { first?: number; sortKey?: string; reverse?: boolean },
+      ctx: Ctx,
     ) => {
       const all = sortCollections(
-        Object.values(collections),
+        Object.values(ctx.store.collections),
         args.sortKey,
         args.reverse,
       );
       return toConnection(all, args.first);
     },
-    cart: (_: unknown, args: { id: string }) => carts.get(args.id) ?? null,
-    node: (_: unknown, args: { id: string }) => {
+    cart: (_: unknown, args: { id: string }, ctx: Ctx) =>
+      ctx.store.carts.get(args.id) ?? null,
+    node: (_: unknown, args: { id: string }, ctx: Ctx) => {
+      const s = ctx.store;
       return (
-        products[args.id] ??
-        variants[args.id] ??
-        collections[args.id] ??
-        carts.get(args.id) ??
+        s.products[args.id] ??
+        s.variants[args.id] ??
+        s.collections[args.id] ??
+        s.carts.get(args.id) ??
         null
       );
     },
@@ -210,66 +217,76 @@ export const resolvers = {
   },
 
   Product: {
-    featuredImage: (p: Product) => images[p.featuredImageId] ?? null,
-    images: (p: Product, args: { first?: number }) =>
+    featuredImage: (p: Product, _: unknown, ctx: Ctx) =>
+      ctx.store.images[p.featuredImageId] ?? null,
+    images: (p: Product, args: { first?: number }, ctx: Ctx) =>
       toConnection(
-        p.imageIds.map((id) => images[id]).filter(Boolean) as Image[],
+        p.imageIds.map((id) => ctx.store.images[id]).filter(Boolean) as Image[],
         args.first,
       ),
-    options: (p: Product) =>
-      p.optionIds.map((id) => productOptions[id]).filter(Boolean),
-    priceRange: (p: Product) => {
-      const r = priceRange(p);
+    options: (p: Product, _: unknown, ctx: Ctx) =>
+      p.optionIds.map((id) => ctx.store.productOptions[id]).filter(Boolean),
+    priceRange: (p: Product, _: unknown, ctx: Ctx) => {
+      const r = priceRange(ctx.store, p);
       return { minVariantPrice: r.min, maxVariantPrice: r.max };
     },
-    variants: (p: Product, args: { first?: number }) =>
+    variants: (p: Product, args: { first?: number }, ctx: Ctx) =>
       toConnection(
-        p.variantIds.map((id) => variants[id]).filter(Boolean) as ProductVariant[],
+        p.variantIds
+          .map((id) => ctx.store.variants[id])
+          .filter(Boolean) as ProductVariant[],
         args.first,
       ),
-    collections: (p: Product, args: { first?: number }) =>
+    collections: (p: Product, args: { first?: number }, ctx: Ctx) =>
       toConnection(
-        p.collectionIds.map((id) => collections[id]).filter(Boolean) as Collection[],
+        p.collectionIds
+          .map((id) => ctx.store.collections[id])
+          .filter(Boolean) as Collection[],
         args.first,
       ),
   },
 
   ProductVariant: {
-    product: (v: ProductVariant) => products[v.productId] ?? null,
+    product: (v: ProductVariant, _: unknown, ctx: Ctx) =>
+      ctx.store.products[v.productId] ?? null,
   },
 
   Collection: {
-    image: (c: Collection) => (c.imageId ? (images[c.imageId] ?? null) : null),
+    image: (c: Collection, _: unknown, ctx: Ctx) =>
+      c.imageId ? (ctx.store.images[c.imageId] ?? null) : null,
     products: (
       c: Collection,
       args: { first?: number; sortKey?: string; reverse?: boolean },
+      ctx: Ctx,
     ) => {
       const list = c.productIds
-        .map((id) => products[id])
+        .map((id) => ctx.store.products[id])
         .filter(Boolean) as Product[];
       return toConnection(
-        sortProducts(list, args.sortKey, args.reverse),
+        sortProducts(ctx.store, list, args.sortKey, args.reverse),
         args.first,
       );
     },
   },
 
   Cart: {
-    totalQuantity: (c: Cart) => cartTotal(c).quantity,
-    cost: (c: Cart) => {
-      const t = cartTotal(c);
+    totalQuantity: (c: Cart, _: unknown, ctx: Ctx) =>
+      cartTotal(ctx.store, c).quantity,
+    cost: (c: Cart, _: unknown, ctx: Ctx) => {
+      const t = cartTotal(ctx.store, c);
       return { subtotalAmount: t.subtotal, totalAmount: t.total };
     },
     lines: (c: Cart, args: { first?: number }) =>
       toConnection(c.lines as (CartLine & { id: string })[], args.first),
-    checkoutUrl: (c: Cart) =>
-      `https://mock-shop.local/checkout/${encodeURIComponent(c.id)}`,
+    checkoutUrl: (c: Cart, _: unknown, ctx: Ctx) =>
+      `https://${ctx.store.slug}.mock-shop.local/checkout/${encodeURIComponent(c.id)}`,
   },
 
   CartLine: {
-    merchandise: (l: CartLine) => getVariant(l.merchandiseId),
-    cost: (l: CartLine) => {
-      const v = getVariant(l.merchandiseId);
+    merchandise: (l: CartLine, _: unknown, ctx: Ctx) =>
+      ctx.store.variants[l.merchandiseId] ?? null,
+    cost: (l: CartLine, _: unknown, ctx: Ctx) => {
+      const v = ctx.store.variants[l.merchandiseId];
       const per = Number(v?.price.amount ?? 0);
       const sub = per * l.quantity;
       return {
@@ -283,20 +300,29 @@ export const resolvers = {
   Mutation: {
     cartCreate: (
       _: unknown,
-      args: { input?: { lines?: { merchandiseId: string; quantity?: number }[]; note?: string; buyerIdentity?: { countryCode?: string } } },
+      args: {
+        input?: {
+          lines?: { merchandiseId: string; quantity?: number }[];
+          note?: string;
+          buyerIdentity?: { countryCode?: string };
+        };
+      },
+      ctx: Ctx,
     ) => {
       const userErrors: { field: string[]; message: string }[] = [];
-      const id = newCartId();
+      const id = newCartId(ctx.store.slug);
       const cart: Cart = {
         id,
         lines: [],
         createdAt: nowIso(),
         updatedAt: nowIso(),
         note: args.input?.note ?? null,
-        buyerIdentity: { countryCode: args.input?.buyerIdentity?.countryCode ?? "US" },
+        buyerIdentity: {
+          countryCode: args.input?.buyerIdentity?.countryCode ?? "US",
+        },
       };
       for (const line of args.input?.lines ?? []) {
-        if (!getVariant(line.merchandiseId)) {
+        if (!ctx.store.variants[line.merchandiseId]) {
           userErrors.push({
             field: ["lines", "merchandiseId"],
             message: `Variant ${line.merchandiseId} not found.`,
@@ -304,20 +330,24 @@ export const resolvers = {
           continue;
         }
         cart.lines.push({
-          id: newLineId(),
+          id: newLineId(ctx.store.slug),
           quantity: line.quantity ?? 1,
           merchandiseId: line.merchandiseId,
         });
       }
-      carts.set(id, cart);
+      ctx.store.carts.set(id, cart);
       return { cart, userErrors };
     },
 
     cartLinesAdd: (
       _: unknown,
-      args: { cartId: string; lines: { merchandiseId: string; quantity?: number }[] },
+      args: {
+        cartId: string;
+        lines: { merchandiseId: string; quantity?: number }[];
+      },
+      ctx: Ctx,
     ) => {
-      const cart = carts.get(args.cartId);
+      const cart = ctx.store.carts.get(args.cartId);
       const userErrors: { field: string[]; message: string }[] = [];
       if (!cart) {
         return {
@@ -326,7 +356,7 @@ export const resolvers = {
         };
       }
       for (const line of args.lines) {
-        const variant = getVariant(line.merchandiseId);
+        const variant = ctx.store.variants[line.merchandiseId];
         if (!variant) {
           userErrors.push({
             field: ["lines", "merchandiseId"],
@@ -337,15 +367,13 @@ export const resolvers = {
         const existing = cart.lines.find(
           (l) => l.merchandiseId === line.merchandiseId,
         );
-        if (existing) {
-          existing.quantity += line.quantity ?? 1;
-        } else {
+        if (existing) existing.quantity += line.quantity ?? 1;
+        else
           cart.lines.push({
-            id: newLineId(),
+            id: newLineId(ctx.store.slug),
             quantity: line.quantity ?? 1,
             merchandiseId: line.merchandiseId,
           });
-        }
       }
       cart.updatedAt = nowIso();
       return { cart, userErrors };
@@ -357,8 +385,9 @@ export const resolvers = {
         cartId: string;
         lines: { id: string; quantity?: number; merchandiseId?: string }[];
       },
+      ctx: Ctx,
     ) => {
-      const cart = carts.get(args.cartId);
+      const cart = ctx.store.carts.get(args.cartId);
       const userErrors: { field: string[]; message: string }[] = [];
       if (!cart) {
         return {
@@ -375,14 +404,11 @@ export const resolvers = {
           });
           continue;
         }
-        if (upd.merchandiseId && getVariant(upd.merchandiseId)) {
+        if (upd.merchandiseId && ctx.store.variants[upd.merchandiseId]) {
           line.merchandiseId = upd.merchandiseId;
         }
-        if (typeof upd.quantity === "number") {
-          line.quantity = upd.quantity;
-        }
+        if (typeof upd.quantity === "number") line.quantity = upd.quantity;
       }
-      // Quantity 0 removes the line, matching Shopify's behavior.
       cart.lines = cart.lines.filter((l) => l.quantity > 0);
       cart.updatedAt = nowIso();
       return { cart, userErrors };
@@ -391,21 +417,17 @@ export const resolvers = {
     cartLinesRemove: (
       _: unknown,
       args: { cartId: string; lineIds: string[] },
+      ctx: Ctx,
     ) => {
-      const cart = carts.get(args.cartId);
-      if (!cart) {
+      const cart = ctx.store.carts.get(args.cartId);
+      if (!cart)
         return {
           cart: null,
           userErrors: [{ field: ["cartId"], message: "Cart not found." }],
         };
-      }
-      const ids = new Set(args.lineIds);
-      cart.lines = cart.lines.filter((l) => !ids.has(l.id));
+      cart.lines = cart.lines.filter((l) => !args.lineIds.includes(l.id));
       cart.updatedAt = nowIso();
       return { cart, userErrors: [] };
     },
   },
 };
-
-// Re-export so callers can use the helpers without reaching into ./data.
-export { getProduct, getProductOfVariant };

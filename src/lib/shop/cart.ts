@@ -3,19 +3,23 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { storefront } from "./client";
+import type { ThemeSlug } from "./themes";
 
-const CART_COOKIE = "mock_shop_cart";
+const cartCookieName = (theme: ThemeSlug) => `mock_shop_cart_${theme}`;
 
-type CartIdPayload = { cart: { id: string } | null; userErrors: { message: string }[] };
+type CartIdPayload = {
+  cart: { id: string } | null;
+  userErrors: { message: string }[];
+};
 
-async function readCartId(): Promise<string | null> {
+async function readCartId(theme: ThemeSlug): Promise<string | null> {
   const c = await cookies();
-  return c.get(CART_COOKIE)?.value ?? null;
+  return c.get(cartCookieName(theme))?.value ?? null;
 }
 
-async function writeCartId(id: string) {
+async function writeCartId(theme: ThemeSlug, id: string) {
   const c = await cookies();
-  c.set(CART_COOKIE, id, {
+  c.set(cartCookieName(theme), id, {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
@@ -23,14 +27,19 @@ async function writeCartId(id: string) {
   });
 }
 
-export async function getCartId(): Promise<string | null> {
-  return readCartId();
+export async function getCartId(theme: ThemeSlug): Promise<string | null> {
+  return readCartId(theme);
 }
 
-async function ensureCart(initialVariantId?: string, qty = 1): Promise<string> {
-  const existing = await readCartId();
+async function ensureCart(
+  theme: ThemeSlug,
+  initialVariantId?: string,
+  qty = 1,
+): Promise<string> {
+  const existing = await readCartId(theme);
   if (existing) return existing;
   const data = await storefront<{ cartCreate: CartIdPayload }>(
+    theme,
     `mutation Create($input: CartInput) {
       cartCreate(input: $input) { cart { id } userErrors { message } }
     }`,
@@ -42,19 +51,25 @@ async function ensureCart(initialVariantId?: string, qty = 1): Promise<string> {
   );
   const id = data.cartCreate.cart?.id;
   if (!id) {
-    const msg = data.cartCreate.userErrors[0]?.message ?? "Failed to create cart";
+    const msg =
+      data.cartCreate.userErrors[0]?.message ?? "Failed to create cart";
     throw new Error(msg);
   }
-  await writeCartId(id);
+  await writeCartId(theme, id);
   return id;
 }
 
-export async function addToCart(merchandiseId: string, quantity = 1) {
-  const existing = await readCartId();
+export async function addToCart(
+  theme: ThemeSlug,
+  merchandiseId: string,
+  quantity = 1,
+) {
+  const existing = await readCartId(theme);
   if (!existing) {
-    await ensureCart(merchandiseId, quantity);
+    await ensureCart(theme, merchandiseId, quantity);
   } else {
     await storefront(
+      theme,
       `mutation Add($cartId: ID!, $lines: [CartLineInput!]!) {
         cartLinesAdd(cartId: $cartId, lines: $lines) {
           cart { id } userErrors { message }
@@ -63,14 +78,19 @@ export async function addToCart(merchandiseId: string, quantity = 1) {
       { cartId: existing, lines: [{ merchandiseId, quantity }] },
     );
   }
-  revalidatePath("/cart");
-  revalidatePath("/", "layout");
+  revalidatePath(`/${theme}/cart`);
+  revalidatePath(`/${theme}`, "layout");
 }
 
-export async function updateCartLine(lineId: string, quantity: number) {
-  const cartId = await readCartId();
+export async function updateCartLine(
+  theme: ThemeSlug,
+  lineId: string,
+  quantity: number,
+) {
+  const cartId = await readCartId(theme);
   if (!cartId) return;
   await storefront(
+    theme,
     `mutation Update($cartId: ID!, $lines: [CartLineUpdateInput!]!) {
       cartLinesUpdate(cartId: $cartId, lines: $lines) {
         cart { id } userErrors { message }
@@ -78,14 +98,15 @@ export async function updateCartLine(lineId: string, quantity: number) {
     }`,
     { cartId, lines: [{ id: lineId, quantity }] },
   );
-  revalidatePath("/cart");
-  revalidatePath("/", "layout");
+  revalidatePath(`/${theme}/cart`);
+  revalidatePath(`/${theme}`, "layout");
 }
 
-export async function removeCartLine(lineId: string) {
-  const cartId = await readCartId();
+export async function removeCartLine(theme: ThemeSlug, lineId: string) {
+  const cartId = await readCartId(theme);
   if (!cartId) return;
   await storefront(
+    theme,
     `mutation Remove($cartId: ID!, $lineIds: [ID!]!) {
       cartLinesRemove(cartId: $cartId, lineIds: $lineIds) {
         cart { id } userErrors { message }
@@ -93,13 +114,13 @@ export async function removeCartLine(lineId: string) {
     }`,
     { cartId, lineIds: [lineId] },
   );
-  revalidatePath("/cart");
-  revalidatePath("/", "layout");
+  revalidatePath(`/${theme}/cart`);
+  revalidatePath(`/${theme}`, "layout");
 }
 
-export async function clearCartCookie() {
+export async function clearCartCookie(theme: ThemeSlug) {
   const c = await cookies();
-  c.delete(CART_COOKIE);
-  revalidatePath("/cart");
-  revalidatePath("/", "layout");
+  c.delete(cartCookieName(theme));
+  revalidatePath(`/${theme}/cart`);
+  revalidatePath(`/${theme}`, "layout");
 }

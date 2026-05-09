@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { storefront, formatMoney } from "@/lib/shop/client";
 import {
   getCartId,
@@ -7,6 +8,7 @@ import {
   updateCartLine,
   clearCartCookie,
 } from "@/lib/shop/cart";
+import { isThemeSlug, type ThemeSlug } from "@/lib/shop/themes";
 
 type CartData = {
   cart: {
@@ -86,20 +88,29 @@ const CART_QUERY = /* GraphQL */ `
   }
 `;
 
-export default async function CartPage() {
-  const cartId = await getCartId();
+export default async function CartPage({
+  params,
+}: {
+  params: Promise<{ theme: string }>;
+}) {
+  const { theme } = await params;
+  if (!isThemeSlug(theme)) notFound();
+
+  const cartId = await getCartId(theme);
   const data = cartId
-    ? await storefront<CartData>(CART_QUERY, { id: cartId })
+    ? await storefront<CartData>(theme, CART_QUERY, { id: cartId })
     : { cart: null };
   const cart = data.cart;
 
   if (!cart || cart.lines.nodes.length === 0) {
     return (
       <div className="py-16 text-center space-y-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Your cart is empty</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Your cart is empty
+        </h1>
         <p className="text-zinc-500">
           Add something from the{" "}
-          <Link href="/" className="underline underline-offset-2">
+          <Link href={`/${theme}`} className="underline underline-offset-2">
             shop
           </Link>
           .
@@ -113,105 +124,11 @@ export default async function CartPage() {
       <section>
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">Cart</h1>
-          <form
-            action={async () => {
-              "use server";
-              await clearCartCookie();
-            }}
-          >
-            <button
-              type="submit"
-              className="text-xs text-zinc-500 hover:underline"
-            >
-              Clear cart
-            </button>
-          </form>
+          <ClearForm theme={theme} />
         </div>
         <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 border-y border-zinc-200 dark:border-zinc-800">
           {cart.lines.nodes.map((line) => (
-            <li key={line.id} className="flex gap-4 py-4">
-              <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-900">
-                {line.merchandise.image ? (
-                  <Image
-                    src={line.merchandise.image.url}
-                    alt={line.merchandise.image.altText ?? line.merchandise.product.title}
-                    fill
-                    sizes="5rem"
-                    className="object-cover"
-                  />
-                ) : null}
-              </div>
-              <div className="flex-1 min-w-0">
-                <Link
-                  href={`/products/${line.merchandise.product.handle}`}
-                  className="text-sm font-medium hover:underline"
-                >
-                  {line.merchandise.product.title}
-                </Link>
-                <p className="text-xs text-zinc-500">{line.merchandise.title}</p>
-                <p className="text-xs text-zinc-500 mt-1 tabular-nums">
-                  {formatMoney(
-                    line.merchandise.price.amount,
-                    line.merchandise.price.currencyCode,
-                  )}{" "}
-                  each
-                </p>
-              </div>
-              <div className="flex flex-col items-end justify-between">
-                <span className="text-sm tabular-nums">
-                  {formatMoney(
-                    line.cost.totalAmount.amount,
-                    line.cost.totalAmount.currencyCode,
-                  )}
-                </span>
-                <div className="flex items-center gap-2">
-                  <form
-                    action={async () => {
-                      "use server";
-                      await updateCartLine(line.id, line.quantity - 1);
-                    }}
-                  >
-                    <button
-                      type="submit"
-                      className="h-7 w-7 rounded-full border border-zinc-200 dark:border-zinc-800 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                      aria-label="Decrease quantity"
-                    >
-                      −
-                    </button>
-                  </form>
-                  <span className="w-6 text-center text-sm tabular-nums">
-                    {line.quantity}
-                  </span>
-                  <form
-                    action={async () => {
-                      "use server";
-                      await updateCartLine(line.id, line.quantity + 1);
-                    }}
-                  >
-                    <button
-                      type="submit"
-                      className="h-7 w-7 rounded-full border border-zinc-200 dark:border-zinc-800 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                      aria-label="Increase quantity"
-                    >
-                      +
-                    </button>
-                  </form>
-                  <form
-                    action={async () => {
-                      "use server";
-                      await removeCartLine(line.id);
-                    }}
-                  >
-                    <button
-                      type="submit"
-                      className="text-xs text-zinc-500 hover:underline ml-2"
-                    >
-                      Remove
-                    </button>
-                  </form>
-                </div>
-              </div>
-            </li>
+            <CartRow key={line.id} theme={theme} line={line} />
           ))}
         </ul>
       </section>
@@ -255,5 +172,116 @@ export default async function CartPage() {
         </p>
       </aside>
     </div>
+  );
+}
+
+function ClearForm({ theme }: { theme: ThemeSlug }) {
+  return (
+    <form
+      action={async () => {
+        "use server";
+        await clearCartCookie(theme);
+      }}
+    >
+      <button type="submit" className="text-xs text-zinc-500 hover:underline">
+        Clear cart
+      </button>
+    </form>
+  );
+}
+
+function CartRow({
+  theme,
+  line,
+}: {
+  theme: ThemeSlug;
+  line: NonNullable<CartData["cart"]>["lines"]["nodes"][number];
+}) {
+  return (
+    <li className="flex gap-4 py-4">
+      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-900">
+        {line.merchandise.image ? (
+          <Image
+            src={line.merchandise.image.url}
+            alt={
+              line.merchandise.image.altText ?? line.merchandise.product.title
+            }
+            fill
+            sizes="5rem"
+            className="object-cover"
+          />
+        ) : null}
+      </div>
+      <div className="flex-1 min-w-0">
+        <Link
+          href={`/${theme}/products/${line.merchandise.product.handle}`}
+          className="text-sm font-medium hover:underline"
+        >
+          {line.merchandise.product.title}
+        </Link>
+        <p className="text-xs text-zinc-500">{line.merchandise.title}</p>
+        <p className="text-xs text-zinc-500 mt-1 tabular-nums">
+          {formatMoney(
+            line.merchandise.price.amount,
+            line.merchandise.price.currencyCode,
+          )}{" "}
+          each
+        </p>
+      </div>
+      <div className="flex flex-col items-end justify-between">
+        <span className="text-sm tabular-nums">
+          {formatMoney(
+            line.cost.totalAmount.amount,
+            line.cost.totalAmount.currencyCode,
+          )}
+        </span>
+        <div className="flex items-center gap-2">
+          <form
+            action={async () => {
+              "use server";
+              await updateCartLine(theme, line.id, line.quantity - 1);
+            }}
+          >
+            <button
+              type="submit"
+              className="h-7 w-7 rounded-full border border-zinc-200 dark:border-zinc-800 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900"
+              aria-label="Decrease quantity"
+            >
+              −
+            </button>
+          </form>
+          <span className="w-6 text-center text-sm tabular-nums">
+            {line.quantity}
+          </span>
+          <form
+            action={async () => {
+              "use server";
+              await updateCartLine(theme, line.id, line.quantity + 1);
+            }}
+          >
+            <button
+              type="submit"
+              className="h-7 w-7 rounded-full border border-zinc-200 dark:border-zinc-800 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900"
+              aria-label="Increase quantity"
+            >
+              +
+            </button>
+          </form>
+          <form
+            action={async () => {
+              "use server";
+              await removeCartLine(theme, line.id);
+            }}
+          >
+            <button
+              type="submit"
+              className="text-xs text-zinc-500 hover:underline ml-2"
+            >
+              Remove
+            </button>
+          </form>
+        </div>
+      </div>
+    </li>
   );
 }

@@ -1,144 +1,46 @@
-import Image from "next/image";
 import Link from "next/link";
-import { storefront, formatMoney } from "@/lib/shop/client";
+import { listThemes } from "@/lib/shop/themes";
 
-type HomeData = {
-  shop: { name: string; description: string };
-  collections: {
-    nodes: {
-      handle: string;
-      title: string;
-      description: string;
-      image: { url: string; altText: string | null } | null;
-    }[];
-  };
-  products: {
-    nodes: {
-      handle: string;
-      title: string;
-      featuredImage: { url: string; altText: string | null } | null;
-      priceRange: {
-        minVariantPrice: { amount: string; currencyCode: string };
-      };
-    }[];
-  };
-};
-
-const HOME_QUERY = /* GraphQL */ `
-  {
-    shop {
-      name
-      description
-    }
-    collections(first: 4, sortKey: TITLE) {
-      nodes {
-        handle
-        title
-        description
-        image {
-          url
-          altText
-        }
-      }
-    }
-    products(first: 8, sortKey: TITLE) {
-      nodes {
-        handle
-        title
-        featuredImage {
-          url
-          altText
-        }
-        priceRange {
-          minVariantPrice {
-            amount
-            currencyCode
-          }
-        }
-      }
-    }
-  }
-`;
-
-export default async function Home() {
-  const data = await storefront<HomeData>(HOME_QUERY);
+export default function Home() {
+  const themes = listThemes();
   return (
-    <div className="space-y-16">
-      <section>
-        <h1 className="text-4xl font-semibold tracking-tight">
-          {data.shop.name}
+    <main className="mx-auto max-w-5xl px-6 py-16">
+      <header className="mb-12">
+        <p className="text-xs uppercase tracking-widest text-zinc-500">
+          Mock Shop
+        </p>
+        <h1 className="text-4xl font-semibold tracking-tight mt-1">
+          Ten themed storefronts.
         </h1>
         <p className="mt-3 max-w-2xl text-zinc-600 dark:text-zinc-400">
-          {data.shop.description}
+          Each storefront is an in-memory mock that speaks a Shopify-shaped
+          Storefront API. Pick one to enter.
         </p>
-      </section>
+      </header>
 
-      <section>
-        <h2 className="text-xl font-semibold tracking-tight mb-6">Collections</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {data.collections.nodes.map((c) => (
+      <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-zinc-200 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
+        {themes.map((t) => (
+          <li key={t.slug}>
             <Link
-              key={c.handle}
-              href={`/collections/${c.handle}`}
-              className="group block"
+              href={`/${t.slug}`}
+              className="block bg-white dark:bg-black hover:bg-zinc-50 dark:hover:bg-zinc-950 p-6 h-full"
             >
-              <div className="relative aspect-[4/3] overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-900">
-                {c.image ? (
-                  <Image
-                    src={c.image.url}
-                    alt={c.image.altText ?? c.title}
-                    fill
-                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                    className="object-cover transition-transform group-hover:scale-105"
-                  />
-                ) : null}
-              </div>
-              <div className="mt-3">
-                <p className="font-medium">{c.title}</p>
-                <p className="text-sm text-zinc-500 line-clamp-1">
-                  {c.description}
-                </p>
-              </div>
+              <p className="text-xs uppercase tracking-widest text-zinc-500">
+                {t.slug}
+              </p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight">
+                {t.shop.name}
+              </p>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                {t.shop.tagline}
+              </p>
+              <p className="mt-4 text-xs text-zinc-500 line-clamp-3">
+                {t.shop.designPOV}
+              </p>
             </Link>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <h2 className="text-xl font-semibold tracking-tight mb-6">
-          Featured products
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-8">
-          {data.products.nodes.map((p) => (
-            <Link
-              key={p.handle}
-              href={`/products/${p.handle}`}
-              className="group block"
-            >
-              <div className="relative aspect-square overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-900">
-                {p.featuredImage ? (
-                  <Image
-                    src={p.featuredImage.url}
-                    alt={p.featuredImage.altText ?? p.title}
-                    fill
-                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
-                    className="object-cover transition-transform group-hover:scale-105"
-                  />
-                ) : null}
-              </div>
-              <div className="mt-2 flex items-baseline justify-between gap-2">
-                <p className="text-sm font-medium truncate">{p.title}</p>
-                <p className="text-sm text-zinc-500 tabular-nums">
-                  {formatMoney(
-                    p.priceRange.minVariantPrice.amount,
-                    p.priceRange.minVariantPrice.currencyCode,
-                  )}
-                </p>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
-    </div>
+          </li>
+        ))}
+      </ul>
+    </main>
   );
 }

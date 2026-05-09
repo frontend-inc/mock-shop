@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { storefront, formatMoney } from "@/lib/shop/client";
 import { addToCart } from "@/lib/shop/cart";
+import { isThemeSlug, type ThemeSlug } from "@/lib/shop/themes";
 
 type ProductData = {
   product: {
@@ -100,10 +101,11 @@ const QUERY = /* GraphQL */ `
 export default async function ProductPage({
   params,
 }: {
-  params: Promise<{ handle: string }>;
+  params: Promise<{ theme: string; handle: string }>;
 }) {
-  const { handle } = await params;
-  const data = await storefront<ProductData>(QUERY, { handle });
+  const { theme, handle } = await params;
+  if (!isThemeSlug(theme)) notFound();
+  const data = await storefront<ProductData>(theme, QUERY, { handle });
   const p = data.product;
   if (!p) notFound();
 
@@ -168,7 +170,7 @@ export default async function ProductPage({
               {p.collections.nodes.map((c, i) => (
                 <span key={c.handle}>
                   <Link
-                    href={`/collections/${c.handle}`}
+                    href={`/${theme}/collections/${c.handle}`}
                     className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
                   >
                     {c.title}
@@ -189,46 +191,7 @@ export default async function ProductPage({
           <h2 className="text-sm font-medium">Variants</h2>
           <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-md">
             {p.variants.nodes.map((v) => (
-              <li
-                key={v.id}
-                className="flex items-center justify-between gap-3 px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{v.title}</p>
-                  <p className="text-xs text-zinc-500">
-                    {v.selectedOptions
-                      .map((o) => `${o.name}: ${o.value}`)
-                      .join(" · ")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm tabular-nums">
-                    {formatMoney(v.price.amount, v.price.currencyCode)}
-                  </span>
-                  {v.compareAtPrice ? (
-                    <span className="text-xs text-zinc-400 line-through tabular-nums">
-                      {formatMoney(
-                        v.compareAtPrice.amount,
-                        v.compareAtPrice.currencyCode,
-                      )}
-                    </span>
-                  ) : null}
-                  <form
-                    action={async () => {
-                      "use server";
-                      await addToCart(v.id, 1);
-                    }}
-                  >
-                    <button
-                      type="submit"
-                      disabled={!v.availableForSale}
-                      className="text-xs font-medium rounded-full px-3 py-1.5 bg-zinc-900 text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-                    >
-                      {v.availableForSale ? "Add" : "Sold out"}
-                    </button>
-                  </form>
-                </div>
-              </li>
+              <VariantRow key={v.id} theme={theme} v={v} />
             ))}
           </ul>
         </section>
@@ -247,5 +210,58 @@ export default async function ProductPage({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function VariantRow({
+  theme,
+  v,
+}: {
+  theme: ThemeSlug;
+  v: {
+    id: string;
+    title: string;
+    availableForSale: boolean;
+    price: { amount: string; currencyCode: string };
+    compareAtPrice: { amount: string; currencyCode: string } | null;
+    selectedOptions: { name: string; value: string }[];
+  };
+}) {
+  return (
+    <li className="flex items-center justify-between gap-3 px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium truncate">{v.title}</p>
+        <p className="text-xs text-zinc-500">
+          {v.selectedOptions.map((o) => `${o.name}: ${o.value}`).join(" · ")}
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="text-sm tabular-nums">
+          {formatMoney(v.price.amount, v.price.currencyCode)}
+        </span>
+        {v.compareAtPrice ? (
+          <span className="text-xs text-zinc-400 line-through tabular-nums">
+            {formatMoney(
+              v.compareAtPrice.amount,
+              v.compareAtPrice.currencyCode,
+            )}
+          </span>
+        ) : null}
+        <form
+          action={async () => {
+            "use server";
+            await addToCart(theme, v.id, 1);
+          }}
+        >
+          <button
+            type="submit"
+            disabled={!v.availableForSale}
+            className="text-xs font-medium rounded-full px-3 py-1.5 bg-zinc-900 text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            {v.availableForSale ? "Add" : "Sold out"}
+          </button>
+        </form>
+      </div>
+    </li>
   );
 }
