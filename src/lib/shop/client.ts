@@ -1,8 +1,10 @@
-// Tiny GraphQL client used by server components and route handlers to query
-// the local mock storefront. Each theme has its own /api/{theme}/graphql
-// endpoint, so the client takes a theme slug.
+// Server-side GraphQL client for the in-memory mock storefront. Each theme
+// has its own /api/{theme}/graphql route, but on the server we call yoga
+// directly to avoid a self-loopback HTTP request — that round-trip would
+// fail under host-based subdomain routing (the public host doesn't resolve
+// from inside the server).
 
-import { headers } from "next/headers";
+import { yogaFor } from "./yoga";
 import type { ThemeSlug } from "./themes";
 
 type GraphQLResponse<T> = {
@@ -10,25 +12,19 @@ type GraphQLResponse<T> = {
   errors?: { message: string }[];
 };
 
-async function endpoint(theme: ThemeSlug): Promise<string> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  return `${proto}://${host}/api/${theme}/graphql`;
-}
-
 export async function storefront<T>(
   theme: ThemeSlug,
   query: string,
   variables: Record<string, unknown> = {},
 ): Promise<T> {
-  const url = await endpoint(theme);
-  const res = await fetch(url, {
+  // The URL only matters to yoga's internal router — point it at the same
+  // path the public route handler exposes.
+  const req = new Request(`http://internal/api/${theme}/graphql`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ query, variables }),
-    cache: "no-store",
   });
+  const res = await yogaFor(theme).handle(req, {});
   const json = (await res.json()) as GraphQLResponse<T>;
   if (json.errors?.length) {
     throw new Error(json.errors.map((e) => e.message).join("; "));
